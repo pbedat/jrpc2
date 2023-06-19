@@ -18,10 +18,11 @@ import (
 type Client struct {
 	done *sync.WaitGroup // done when the reader is finished at shutdown time
 
-	log   func(string, ...any) // write debug logs here
-	snote func(*jmessage)
-	scall func(context.Context, *jmessage) []byte
-	chook func(*Client, *Response)
+	log      func(string, ...any) // write debug logs here
+	snote    func(*jmessage)
+	scall    func(context.Context, *jmessage) []byte
+	chook    func(*Client, *Response)
+	stophook func(err error)
 
 	cbctx    context.Context    // terminates when the client is closed
 	cbcancel context.CancelFunc // cancels cbctx
@@ -37,11 +38,12 @@ type Client struct {
 func NewClient(ch channel.Channel, opts *ClientOptions) *Client {
 	cbctx, cbcancel := context.WithCancel(context.Background())
 	c := &Client{
-		done:  new(sync.WaitGroup),
-		log:   opts.logFunc(),
-		snote: opts.handleNotification(),
-		scall: opts.handleCallback(),
-		chook: opts.handleCancel(),
+		done:     new(sync.WaitGroup),
+		log:      opts.logFunc(),
+		snote:    opts.handleNotification(),
+		scall:    opts.handleCallback(),
+		chook:    opts.handleCancel(),
+		stophook: opts.handleStop(),
 
 		cbctx:    cbctx,
 		cbcancel: cbcancel,
@@ -411,6 +413,12 @@ func (c *Client) stopLocked(err error) {
 
 	c.err = err
 	c.ch = nil
+
+	if errors.Is(err, errClientStopped) {
+		c.stophook(nil)
+	} else {
+		c.stophook(err)
+	}
 }
 
 // marshalParams validates and marshals params to JSON for a request.  The
